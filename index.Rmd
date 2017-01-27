@@ -1,0 +1,88 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Francesca Tantardini"
+date: "27 gennaio 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+The purpose of this project is to predict whether barbell lifts were performed correctly or incorrectly (in this case how incorrectly) on the base of the data from accelerometers on the belt, forearm, arm, and dumbell collected in <http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises> . 
+
+The training data set consists of 19622 observations of 160 variables. Between them are variables related to the participants and the time, which we do not consider in our analysis
+
+```{r, message = FALSE}
+library(caret)
+```
+```{r}
+training<-read.csv('pml-training.csv')
+dim(training)
+indices<-match(c("X","user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window"),  names(training))
+training<-training[,-indices]
+``` 
+```{r, message = FALSE}
+head(training)
+```
+
+Moreover, it seems taht there are columns with a lot of NA values. We decide to exclude the variables which have more than 30% missing values, and we take only the rows without missing values. 
+```{r}
+numOb<-dim(training)[1]
+NAval<-colSums(is.na(training)) #number of missing values in every column
+training<-training[,NAval<0.3*numOb]
+training<-training[complete.cases(training),]
+dim(training)
+```
+This is still a set with 86 variables. To further decrease this number, we remove the near zero variance predictors 
+```{r}
+nsv<-nearZeroVar(training, saveMetrics=TRUE) #variables with near zero variance
+training<-training[,!nsv$nzv]
+dim(training)
+```
+We have now a training set with 53 variables. We build our predicting model with the help of the caret package. We use cross validation with K=10 through the option `trControl` of the function `train`. We first predict with trees using the method `rpart`
+```{r}
+set.seed(2104)
+ctrl<-trainControl(method="cv", number=10) #to use cross validation
+```
+```{r, message = FALSE}
+modFit<-train(classe ~., method="rpart", data=training, trControl=ctrl)
+```
+We predict the factor variable `classe`, which contains five levels: A (exercise correct) and B, C, D, E (incorrect in four different ways) with all other variables in the training data set. 
+The accuracy on the training set is though quite low, as we can see with the help of the `confusionMatrix` function: 
+```{r}
+confusionMatrix(predict(modFit, training), training$classe)
+```
+We see that too many observations are classified as correct (A) although they are not.
+
+Looking at the `modFit$finalModel`, we can see how the decisions are made to classify the observations.
+```{r}
+modFit$finalModel
+```
+We make some plots of the variables used in the tree and we colour by the class. It seems that the predictor are quite weak. 
+
+``` {r}
+qplot(1:dim(training)[1], roll_belt, data=training, colour=classe)
+qplot(1:dim(training)[1], pitch_forearm, data=training, colour=classe)
+qplot(1:dim(training)[1], roll_forearm, data=training, colour=classe)
+```
+
+We therefore use boosting ( method `gbm`), again with cross validation,  in order to increase the accuracy.
+```{r, message=FALSE}
+modFitB<-train(classe~., method="gbm", data=training, trControl=ctrl, verbose=FALSE)
+```
+Using the `confusionMatrix` function
+```{r}
+confusionMatrix(predict(modFitB, training), training$classe)
+```
+We can see that now the accuracy on the training set is 0.97
+
+We expect that the out of sample error  greater is than the error on the training set that we use to build our model. 
+
+We use our predictor to predict the class of 20 observations in the test set: 
+
+```{r}
+testing<-read.csv('pml-testing.csv') 
+predict(modFitB, testing)
+```
+
+
